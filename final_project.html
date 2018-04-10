@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+
+	<head>
+
+		<meta http-equiv="content-type" content="text/html; charset=UTF8">
+
+		<title>D3: Epidemic simulation</title>
+		<script type="text/javascript" src="d3_laurits.js"></script>
+
+		Infectiousness:
+		<input id='infectiousness' class='range' type='number' value='0.75' min='0' max='1' step='0.05'></input>
+		immunity:
+		<input id='immunity' class='range' type='number' value='0.05' min='0' max='1' step='0.05'></input>
+		</br>
+		<button id="lattice" class="button distribution">lattice</button>
+		<button id="tree" class="button distribution">tree</button>
+		<button id="random" class="button distribution">random</button>
+		<button id="go" class="button simulation">GO!</button>
+
+
+		<style type="text/css">
+
+		.button {
+			color: #ffffff;
+			padding: 15px;
+			text-align: center;
+			text-decoration: none;
+			display: inline-block;
+		}
+
+		.range {
+			color: #ffffff;
+			padding: 5px;
+			width: 50px;
+			text-align: center;
+			text-decoration: none;
+			display: inline-block;
+			margin: 1px 1px;
+			border-radius: 12px;
+			background-color: #1b2631;
+			font-size: 14px;
+		}
+
+		.distribution {
+			border-radius: 12px;
+			background-color: #1b2631;
+			font-size: 16px;
+			margin: 8px 1px;
+		}
+
+		.simulation {
+			border-radius: 100%;
+			background-color: #c0392b;
+			font-size: 18px;
+			margin: 8px 10px;
+		}
+
+		</style>
+
+	</head>
+
+	<body>
+
+		<script type="text/javascript">
+
+			//Width and height of canvas
+			var w = 1600;
+			var h = 1300;
+
+			//Create SVG element
+			var svg = d3.select("body")
+						.append("svg")
+						.attr("width", w)
+						.attr("height", h);
+
+			//Connect variables to each button of the head part:
+			var lattice = document.getElementById("lattice");
+			var tree = document.getElementById("tree");
+			var random = document.getElementById("random");
+			var go = document.getElementById("go");
+
+			//Define function triggered by GO! button:
+			go.onclick = function(){
+				var svg = d3.select("body");
+				var edges = d3.selectAll('line');
+				var nodes = d3.selectAll('circle');
+				//Get inpuft from first range of head section. Infectiousness
+				//indicates how contagious the hypothetical diseases is by defining
+				//the probability of a new infection.
+				var infectiousness = document.getElementById("infectiousness").value;
+
+				//filter all nodes to get list of all nodes connected to already infected ones:
+				nodes.filter(function(e){
+						var contagiousEdges = edges.filter(function(d){
+							return e.status > 0 &&
+								(e.index == d.source.index || e.index == d.target.index);
+						}).style('stroke', '#F9E79F');
+						//all edges which can transmit the disease are colored yellow.
+
+						var safeEdges = edges.filter(function(d){
+							return e.status == 0 &&
+								e.index == d.source.index && e.index == d.target.index;
+						}).style('stroke', '#D5DBDB');
+
+						contagiousEdges.filter(function(f){
+							var riskedNodes = nodes.filter(function(g){
+								return g.index == f.source.index || g.index == f.target.index;
+							});
+
+							riskedNodes.each(function(h){
+								if (h.condition != 'immune'){
+									h.condition = 'infected';
+									//nodes are marked as infected, which only means that they
+									//are exposed to actually infected nodes/persons.
+								}
+							});
+						});
+					});
+
+
+				nodes.each(function(d){
+					if (d.condition == 'infected' && d.status == 0){
+						//infected nodes are only actually sick by chance
+						//sickness is indicated by red fill of nodes!
+						if (Math.random() < infectiousness){
+							console.log(d.index + ' is infected');
+							d3.select(this).transition()
+									.style("fill", '#1b2631')
+									.attr("r", 30)
+								.transition()
+									.attr("r", 10)
+									.style("fill", '#c0392b');
+							d.status = 1;
+						}
+						d.condition = 'healthy';
+					} else if (d.condition == 'infected' && d.status > 0){
+						d.status += 1;
+						d.condition = 'healthy'
+						if (d.status > 5){
+							d3.select(this)
+							.style('fill', '#D5DBDB')
+							.style('stroke', '#27ae60');
+							d.status = 0;
+							d.condition = 'immune';
+							//after five periods of sickness, nodes turn healthy again
+							//and are immune against new infections!
+						}
+					}
+				});
+			};
+
+
+			//define first distribution of nodes: lattice!
+			lattice.onclick = function(){
+
+				var n = 20; //n * n nodes will be drawn!
+				var immunity = document.getElementById("immunity").value;
+
+				var nodes = d3.range(n * n).map(function(i) {
+					if (Math.random() > immunity){
+					  	return {
+						  	index: i,
+						  	status: 0,
+						  	condition: 'healthy'
+					  	};
+					} else {
+						return {
+							index: i,
+						  	status: 0,
+						  	condition: 'immune' //nodes are set by chance to be immune from the beginning.
+					  	};
+				  }
+				});
+
+				var edges = [];
+
+				for (var y = 0; y < n; ++y) {
+				  for (var x = 0; x < n; ++x) {
+					if (y > 0) edges.push({source: (y - 1) * n + x, target: y * n + x});
+					if (x > 0) edges.push({source: y * n + (x - 1), target: y * n + x});
+				  }
+				}
+
+				var dataset = {nodes, edges};
+
+				//Initialize a default force layout, using the nodes and edges
+				var force = d3.layout.force()
+									 .nodes(dataset.nodes)
+									 .links(dataset.edges)
+									 .size([w, h])
+									 .linkDistance(5)
+									 .charge([-100])
+									 .start();
+
+			 	//Create edges as lines, mouseover highlights the two nodes connected by one edge
+				var edges = svg.selectAll("line")
+					.attr('class', 'edges')
+					.data(dataset.edges)
+					.enter()
+					.append("line")
+					.style("stroke", "#D5DBDB")
+					.style("stroke-width", 3)
+					.on('mouseover', function(d) {
+						console.log(d)
+					  	var connectedNodes = nodes.filter(function(e){
+							return e.index == d.source.index || e.index == d.target.index; //connected nodes
+						}).style('stroke', function(f){
+							if (f.condition != 'immune'){
+								return '#F1C40F'; //yellow indicates sick or healthy
+							} else {
+								return '#27ae60';} //green color indicates immunity
+						})
+						.style('stroke-width', 5)
+						.attr('r', 15)
+					})
+					.on('mouseout', function(d) {
+					  	var connectedNodes = nodes.filter(function(e) {
+						  	return e.index == d.source.index || e.index == d.target.index; //connected nodes
+						}).style('stroke', function(f){
+							if (f.condition != 'immune'){
+								return '#1b2631';
+							} else {
+								return '#27ae60';}
+						})
+						.style('stroke-width', 3)
+						.attr('r', 10)
+					});
+
+
+
+				//Create nodes as circles
+				var nodes = svg.selectAll("circle")
+					.attr('class', 'nodes')
+					.data(dataset.nodes)
+					.enter()
+					.append("circle")
+					.attr("r", 10)
+					.style('fill', '#D5DBDB')
+					.style('stroke', function(d){
+						if(d.condition != 'immune'){
+							return '#1b2631';
+						} else {
+							return '#27ae60';
+						}
+					})
+					.style('stroke-width', 3)
+					.call(force.drag)
+					.on("click", function(d){
+						d3.select(this).transition()
+								.style("fill", '#1b2631')
+								.attr("r", 50)
+							.transition()
+								.attr("r", 10)
+								.style("fill", function(d){
+									if(d.condition != 'immune'){
+										return '#c0392b';
+									} else {
+										return '#D5DBDB';
+									}
+								});
+						if(d.condition != 'immune'){
+							d.status = 1;
+							d.condition = 'infected';
+						}
+						console.log("index: " + d.index + ' is ' + d.condition);
+					});
+
+
+				nodes.append('title')
+					.text(function(d){return d.index;}); //add title to every node, the index!
+
+				//Every time the simulation "ticks", this will be called
+				force.on("tick", function() {
+
+					edges.attr("x1", function(d) { return d.source.x; })
+						 .attr("y1", function(d) { return d.source.y; })
+						 .attr("x2", function(d) { return d.target.x; })
+						 .attr("y2", function(d) { return d.target.y; });
+
+					nodes.attr("cx", function(d) { return d.x; })
+						 .attr("cy", function(d) { return d.y; });
+				});
+
+			};
+
+
+			//second distribution is kind of a tree:
+			tree.onclick = function(){
+
+				//Original data
+				var n = 400;
+				var immunity = document.getElementById("immunity").value;
+
+				var nodes = d3.range(n).map(function(i) {
+					if (Math.random() > 0.1){
+					  return {
+						  index: i,
+						  status: 0,
+						  condition: 'healthy'
+					  };
+					} else {
+						return {
+						  index: i,
+						  status: 0,
+						  condition: 'immune'
+					  };
+				  }
+				});
+
+				var edges = d3.range(nodes.length - 1).map(function(i) {
+				  return {
+					source: Math.floor(Math.sqrt(i) + Math.random() * 0),
+					target: i + 1,
+				  };
+				});
+
+
+				var dataset = {nodes, edges};
+
+				//Initialize a default force layout, using the nodes and edges
+				var force = d3.layout.force()
+									 .nodes(dataset.nodes)
+									 .links(dataset.edges)
+									 .size([w, h])
+									 .linkDistance(15)
+									 .charge([-200])
+									 .start();
+
+				//Create edges as lines
+ 				var edges = svg.selectAll("line")
+ 					.attr('class', 'edges')
+ 					.data(dataset.edges)
+ 					.enter()
+ 					.append("line")
+ 					.style("stroke", "#D5DBDB")
+ 					.style("stroke-width", 3)
+ 					.on('mouseover', function(d) {
+ 						console.log(d)
+ 					  	var connectedNodes = nodes.filter(function(e){
+ 							return e.index == d.source.index || e.index == d.target.index; //connected nodes
+ 						}).style('stroke', function(f){
+ 							if (f.condition != 'immune'){
+ 								return '#F1C40F';
+ 							} else {
+ 								return '#27ae60';}
+ 						})
+ 						.style('stroke-width', 5)
+ 						.attr('r', 15)
+ 					})
+ 					.on('mouseout', function(d) {
+ 					  	var connectedNodes = nodes.filter(function(e) {
+ 						  	return e.index == d.source.index || e.index == d.target.index; //connected nodes
+ 						}).style('stroke', function(f){
+ 							if (f.condition != 'immune'){
+ 								return '#1b2631';
+ 							} else {
+ 								return '#27ae60';}
+ 						})
+ 						.style('stroke-width', 3)
+ 						.attr('r', 10)
+ 					});
+
+
+
+				//Create nodes as circles
+				var nodes = svg.selectAll("circle")
+					.attr('class', 'nodes')
+					.data(dataset.nodes)
+					.enter()
+					.append("circle")
+					.attr("r", 10)
+					.style('fill', '#D5DBDB')
+					.style('stroke', function(d){
+						if(d.condition != 'immune'){
+							return '#1b2631';
+						} else {
+							return '#27ae60';
+						}
+					})
+					.style('stroke-width', 3)
+					.call(force.drag)
+					.on("click", function(d){
+						d3.select(this).transition()
+								.style("fill", '#1b2631')
+								.attr("r", 50)
+							.transition()
+								.attr("r", 10)
+								.style("fill", function(d){
+									if(d.condition != 'immune'){
+										return '#c0392b';
+									} else {
+										return '#D5DBDB';
+									}
+								});
+						if(d.condition != 'immune'){
+							d.status = 1;
+							d.condition = 'infected';
+						}
+						console.log("index: " + d.index + ' is ' + d.condition);
+					});
+
+				nodes.append('title')
+					.text(function(d){return d.index;});
+
+				//Every time the simulation "ticks", this will be called
+
+				force.on("tick", function() {
+
+					edges.attr("x1", function(d) { return d.source.x; })
+						 .attr("y1", function(d) { return d.source.y; })
+						 .attr("x2", function(d) { return d.target.x; })
+						 .attr("y2", function(d) { return d.target.y; });
+
+					nodes.attr("cx", function(d) { return d.x; })
+						 .attr("cy", function(d) { return d.y; });
+				});
+			};
+
+
+
+
+
+			//last distribution draws nodes and edges at random:
+			random.onclick = function(){
+				//Original data
+				var n = 400; //n nodes drawn randomly
+				var immunity = document.getElementById("immunity").value;
+
+				var nodes = d3.range(n).map(function(i){
+					if (Math.random() > 0.1){
+					  return {
+						  index: i,
+						  status: 0,
+						  condition: 'healthy'
+					  };
+					} else {
+						return {
+						  index: i,
+						  status: 0,
+						  condition: 'immune'
+					  };
+				  }
+				});
+
+				//for the edges different parameters can be set.
+				//the number of random edges is a multiple of the nodes.length
+				//which is simple the number of nodes in the graph:
+
+				var edges = d3.range(nodes.length * 1.2).map(function(i) {
+				  return {
+					source: Math.floor(Math.pow(Math.random(), 1.1) * n),
+					target: Math.floor(Math.pow(Math.random(), 1.1) * n)
+				  };
+				});
+
+
+				var dataset = {nodes, edges};
+
+				//Initialize a default force layout, using the nodes and edges
+				var force = d3.layout.force()
+									 .nodes(dataset.nodes)
+									 .links(dataset.edges)
+									 .size([w, h])
+									 .linkDistance(10)
+									 .charge([-200])
+									 .start();
+
+
+				 //Create edges as lines
+  				var edges = svg.selectAll("line")
+  					.attr('class', 'edges')
+  					.data(dataset.edges)
+  					.enter()
+  					.append("line")
+  					.style("stroke", "#D5DBDB")
+  					.style("stroke-width", 3)
+  					.on('mouseover', function(d) {
+  						console.log(d)
+  					  	var connectedNodes = nodes.filter(function(e){
+  							return e.index == d.source.index || e.index == d.target.index; //connected nodes
+  						}).style('stroke', function(f){
+  							if (f.condition != 'immune'){
+  								return '#F1C40F';
+  							} else {
+  								return '#27ae60';}
+  						})
+  						.style('stroke-width', 5)
+  						.attr('r', 15)
+  					})
+  					.on('mouseout', function(d) {
+  					  	var connectedNodes = nodes.filter(function(e) {
+  						  	return e.index == d.source.index || e.index == d.target.index; //connected nodes
+  						}).style('stroke', function(f){
+  							if (f.condition != 'immune'){
+  								return '#1b2631';
+  							} else {
+  								return '#27ae60';}
+  						})
+  						.style('stroke-width', 3)
+  						.attr('r', 10)
+  					});
+
+
+
+ 				//Create nodes as circles
+ 				var nodes = svg.selectAll("circle")
+ 					.attr('class', 'nodes')
+ 					.data(dataset.nodes)
+ 					.enter()
+ 					.append("circle")
+ 					.attr("r", 10)
+ 					.style('fill', '#D5DBDB')
+ 					.style('stroke', function(d){
+ 						if(d.condition != 'immune'){
+ 							return '#1b2631';
+ 						} else {
+ 							return '#27ae60';
+ 						}
+ 					})
+ 					.style('stroke-width', 3)
+ 					.call(force.drag)
+ 					.on("click", function(d){
+ 						d3.select(this).transition()
+ 								.style("fill", '#1b2631')
+ 								.attr("r", 50)
+ 							.transition()
+ 								.attr("r", 10)
+ 								.style("fill", function(d){
+ 									if(d.condition != 'immune'){
+ 										return '#c0392b';
+ 									} else {
+ 										return '#D5DBDB';
+ 									}
+ 								});
+ 						if(d.condition != 'immune'){
+ 							d.status = 1;
+ 							d.condition = 'infected';
+ 						}
+ 						console.log("index: " + d.index + ' is ' + d.condition);
+ 					});
+
+
+				nodes.append('title')
+					.text(function(d){return d.index;});
+
+				//Every time the simulation "ticks", this will be called
+				force.on("tick", function() {
+
+					edges.attr("x1", function(d) { return d.source.x; })
+						 .attr("y1", function(d) { return d.source.y; })
+						 .attr("x2", function(d) { return d.target.x; })
+						 .attr("y2", function(d) { return d.target.y; });
+
+					nodes.attr("cx", function(d) { return d.x; })
+						 .attr("cy", function(d) { return d.y; });
+
+				});
+			};
+
+
+		</script>
+	</body>
+</html>
